@@ -1,6 +1,8 @@
 package com.hmgcarapp.myclimate
 
 import com.hmgcarapp.myclimate.app.StateCodec
+import com.hmgcarapp.myclimate.app.netLoadResult
+import com.hmgcarapp.myclimate.data.NetPrefsData
 import com.hmgcarapp.myclimate.domain.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -139,5 +141,12 @@ class ReadingSanityTest {
         assertTrue(UiTexts.CLEAR_ALL_DESC.contains("스마트 내외기 설정도 꺼짐으로 돌아가요"))
         assertTrue(UiTexts.CLEAR_ALL_DESC.contains("되돌릴 수 없어요")); assertEquals("모든 데이터를 삭제할까요?", UiTexts.CLEAR_ALL_TITLE)
         assertFalse(Persisted().smartRecirc) // 기본값 = 꺼짐: 실제 초기화 결과와 문구가 일치
+    }
+
+    // 삭제 뒤 늦게 끝난 읽기는 적용하지 않는다(재동의 선택 보존)
+    @Test fun lateNetLoadSkippedAfterWipe() {
+        val loaded = NetPrefsData(decided = true, consent = true, regionId = "x")
+        assertNull(netLoadResult(true, loaded))
+        assertEquals(loaded, netLoadResult(false, loaded))
     }
 }

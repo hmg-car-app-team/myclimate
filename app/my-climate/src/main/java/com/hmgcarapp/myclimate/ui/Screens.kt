@@ -1,10 +1,12 @@
 package com.hmgcarapp.myclimate.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -24,12 +26,14 @@ import com.hmgcarapp.core.drive.DriveState
 import com.hmgcarapp.core.ui.rememberDriveSnapshot
 import com.hmgcarapp.myclimate.app.AppController
 import com.hmgcarapp.myclimate.app.UiState
+import com.hmgcarapp.myclimate.data.Regions
 import com.hmgcarapp.myclimate.domain.*
 import com.hmgcarapp.pleos.designsystem.component.PleosButton
 import com.hmgcarapp.pleos.designsystem.component.PleosButtonHierarchy
 import com.hmgcarapp.pleos.designsystem.component.PleosListItem
 import com.hmgcarapp.pleos.designsystem.component.PleosPanel
 import com.hmgcarapp.pleos.designsystem.component.PleosPopup
+import com.hmgcarapp.pleos.designsystem.component.PleosPopupSize
 import com.hmgcarapp.pleos.designsystem.component.PleosScaffold
 import com.hmgcarapp.pleos.designsystem.component.PleosSegmentedTabs
 import com.hmgcarapp.pleos.designsystem.component.PleosStatus
@@ -81,9 +85,10 @@ fun MyClimateApp(c: AppController) {
             onDismissRequest = { c.dismissSuggestion() }, cancelLabel = "지금은 안 함",
         )
     }
+    if (!driving && s.netLoaded && !s.netDecided && !s.netPromptSnoozed) NetNoticePopup(c)
     PleosScaffold(
         title = "마이클라이밋",
-        subtitle = "${s.dataLabel} · ${if (driving) "주행 중" else "정차 중"}" + if (c.debuggable) " · ${snap.reason}" else "",
+        subtitle = "${s.envBadge} · ${if (driving) "주행 중" else "정차 중"}" + if (c.debuggable) " · ${snap.reason}" else "",
         toastState = toast,
         actions = {
             if (c.debuggable) PleosSegmentedTabs(
@@ -135,7 +140,10 @@ private fun StatusPanels(s: UiState) {
         KV("시간대", "${TimeSlot.of(s.ctx.hour).label} (${s.ctx.hour}시)")
         KV("날씨", s.weather?.label ?: "알 수 없음")
         KV("대기질", s.air?.label ?: "알 수 없음")
-        Txt(s.dataLabel + (if (s.simActive) " · 시연 값 사용 중" else ""), PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("data_label"))
+        Box(Modifier.testTag("data_label")) { PleosStatusBadge(s.envBadge, if (s.envBadge.startsWith("실시간")) PleosStatus.Positive else PleosStatus.Neutral) }
+        if (s.simActive) Txt("시연 값 사용 중", PleosTheme.typography.labelMedium, secondary = true)
+        s.airNote?.let { Txt(it, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("air_note")) }
+        if (s.demoWeather != null || s.demoAir != null) Box(Modifier.testTag("demo_badge")) { PleosStatusBadge("시연 값 (실데이터 아님)", PleosStatus.Neutral) }
     }
     PleosPanel(Modifier.fillMaxWidth(), title = "차량 공조 (운전석)") {
         val hw = fs.hw
@@ -159,7 +167,10 @@ private fun NowPage(c: AppController, s: UiState) {
         Txt("프로필: ${fs.p.selected?.name ?: "선택 없음"}", secondary = true)
         Txt(if (res.applied.isEmpty()) "지금 상황에 맞는 규칙이 없어요" else "맞는 규칙: " + res.applied.joinToString(", ") { it.name }, secondary = true, modifier = Modifier.testTag("matched_rules"))
         // 차량이 지원하지 않는 항목은 적용되지 않으므로 표시에서도 뺀다(연결 전에는 원본 그대로)
-        Txt(describe(if (fs.hw.connected && fs.hw.caps.any) fs.hw.caps.filter(res.settings) else res.settings), modifier = Modifier.testTag("resolved"))
+        val fk = FeelKeep.adjust(res.settings.tempC, s.ctx.outsideC, fs.p.feelKeep, fs.hw.caps.limits)
+        val shown = if (fk.applied) res.settings.copy(tempC = fk.tempC) else res.settings
+        Txt(describe(if (fs.hw.connected && fs.hw.caps.any) fs.hw.caps.filter(shown) else shown), modifier = Modifier.testTag("resolved"))
+        if (fk.applied) Txt("체감 유지 적용: 목표 온도 ${FeelKeep.label(fk.delta)} (외기온 ${fmtTemp(s.ctx.outsideC)} 기반)", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("feel_applied"))
         PleosButton("지금 적용", onClick = { c.applyNow() }, enabled = fs.hw.connected && fs.hw.caps.any, modifier = Modifier.testTag("apply_now"))
         fs.note?.let { Txt("최근: $it", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("note")) }
         if (!fs.hw.connected) Txt("차량 공조에 연결되면 적용할 수 있어요.", PleosTheme.typography.labelMedium, secondary = true)
@@ -302,6 +313,19 @@ private fun SettingsPage(c: AppController, s: UiState) {
         PleosSwitch(p.smartRecirc, { c.setSmartRecirc(it) }, label = "스마트 내외기 전환", modifier = Modifier.testTag("set_smart"))
         Txt("스마트 내외기: 대기질이 나쁘면 내기, 내기가 ${RecircPolicy.MAX_MS / 60_000}분(대기질 나쁨 ${RecircPolicy.MAX_BAD_AIR_MS / 60_000}분) 넘으면 외기로 자동 전환하고 한 줄로 알려요. 직접 바꾸면 ${RecircPolicy.HOLD_MS / 60_000}분간 자동 전환을 멈춰요.", PleosTheme.typography.labelMedium, secondary = true)
     }
+    PleosPanel(Modifier.fillMaxWidth(), title = "체감 온도 유지") {
+        PleosSwitch(p.feelKeep, { c.setFeelKeep(it) }, label = "외기온 기반 체감 보정", modifier = Modifier.testTag("set_feel"))
+        Txt("외기온만 봐요(일사량·체감 센서는 사용하지 않아요). 외기온이 ${FeelKeep.HOT_NOTE}일 때 적용되는 목표 온도를 ±1~2℃ 보정하고, 차량 허용 범위를 넘지 않아요. 외기온을 알 수 없으면 보정하지 않아요.", PleosTheme.typography.labelMedium, secondary = true)
+    }
+    PleosPanel(Modifier.fillMaxWidth(), title = "시연용 날씨·대기질") {
+        Txt("실제 연동 값이 아닌 시연용 값을 고르면 규칙·스마트 내외기에 그 값이 쓰여요. 이번 실행 동안만 유지되고 저장하지 않아요.", PleosTheme.typography.labelMedium, secondary = true)
+        Txt("날씨", secondary = true)
+        PleosSegmentedTabs(DemoEnv.WEATHER_LABELS, DemoEnv.WEATHER.indexOf(s.demoWeather).coerceAtLeast(0), { c.setDemoWeather(DemoEnv.weatherAt(it)) }, Modifier.fillMaxWidth().testTag("demo_weather"))
+        Txt("대기질", secondary = true)
+        PleosSegmentedTabs(DemoEnv.AIR_LABELS, DemoEnv.AIR.indexOf(s.demoAir).coerceAtLeast(0), { c.setDemoAir(DemoEnv.airAt(it)) }, Modifier.fillMaxWidth().testTag("demo_air"))
+        if (s.demoWeather != null || s.demoAir != null) PleosStatusBadge("시연 값 사용 중", PleosStatus.Neutral)
+    }
+    NetSettingsPanel(c, s)
     PleosPanel(Modifier.fillMaxWidth(), title = "저장된 데이터") {
         Txt("프로필·규칙·습관 통계(상황별 ‘켠 날짜’)만 이 기기에 평문으로 저장해요. 습관 통계에는 관측 날짜 번호(최대 14일)가, 거절한 제안에는 다시 제안하지 않을 시각(에포크 ms)이 저장돼요. 위치·음성은 저장하지 않아요.", PleosTheme.typography.labelMedium, secondary = true)
         KV("프로필", "${p.profiles.size}개"); KV("규칙", "${p.rules.size}개"); KV("학습된 습관", "${p.habits.size}건")
@@ -320,5 +344,40 @@ private fun SettingsPage(c: AppController, s: UiState) {
             confirmLabel = "삭제", onConfirm = { ask = null; if (which == "all") c.clearAllData() else c.clearLearned() },
             onDismissRequest = { ask = null }, cancelLabel = "취소",
         )
+    }
+}
+
+// ---------------- 날씨·대기질 네트워크 사용 ----------------
+private const val NET_NOTICE = "선택한 지역의 대표 좌표(예: 서울시청 부근)를 Open-Meteo 서버(open-meteo.com)로 보내 날씨와 대기질을 받아요. 계정·기기·차량 식별자와 기기 위치는 보내지 않아요(서버는 접속 IP 를 볼 수 있어요). 동의하지 않으면 인터넷을 쓰지 않고 기본 샘플을 보여줘요. 설정에서 언제든 철회할 수 있어요."
+private const val NET_ATTRIBUTION = "날씨: Open-Meteo.com (CC BY 4.0). 대기질: Copernicus Atmosphere Monitoring Service(CAMS) 모델 데이터를 Open-Meteo 로 받아요. 대기질은 약 45km 격자 모델 추정이라 참고용이에요. 무료 비상업 이용 범위의 시연용 연동이에요."
+
+@Composable
+private fun NetNoticePopup(c: AppController) {
+    PleosPopup(
+        title = "인터넷으로 날씨·대기질을 받을까요?", description = null,
+        confirmLabel = "동의하고 사용", onConfirm = { c.setNetConsent(true) },
+        onDismissRequest = { c.snoozeNetPrompt() }, cancelLabel = "사용 안 함", onCancel = { c.setNetConsent(false) },
+        size = PleosPopupSize.Large,
+    ) {
+        Column(Modifier.fillMaxWidth().heightIn(max = PleosTheme.dimensions.popupMaxHeight / 2).verticalScroll(rememberScrollState()).testTag("net_notice")) {
+            Txt(NET_NOTICE); Txt(NET_ATTRIBUTION, PleosTheme.typography.labelMedium, secondary = true)
+        }
+    }
+}
+
+@Composable
+private fun NetSettingsPanel(c: AppController, s: UiState) {
+    PleosPanel(Modifier.fillMaxWidth(), title = "날씨·대기질 (Open-Meteo)") {
+        PleosSwitch(s.netConsent, { if (s.netLoaded) c.setNetConsent(it) }, label = "인터넷으로 날씨·대기질 받기", modifier = Modifier.testTag("set_net"))
+        Txt(NET_NOTICE, PleosTheme.typography.labelMedium, secondary = true)
+        Txt("지역 (기기 위치는 쓰지 않아요)", secondary = true)
+        Column(Modifier.fillMaxWidth().heightIn(max = PleosTheme.dimensions.popupMaxHeight / 2).verticalScroll(rememberScrollState()).testTag("region_list")) {
+            Regions.ALL.forEach { r ->
+                PleosListItem(title = r.label, selected = r.id == s.regionId, onClick = { if (s.netLoaded) c.selectRegion(r.id) },
+                    trailing = { if (r.id == s.regionId) PleosStatusBadge("선택됨", PleosStatus.Positive) })
+            }
+        }
+        Txt("현재 출처: ${s.envBadge}", PleosTheme.typography.labelMedium, secondary = true)
+        Txt(NET_ATTRIBUTION, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("attribution"))
     }
 }

@@ -1,18 +1,13 @@
 package com.hmgcarapp.myclimate.data
 
-import com.hmgcarapp.core.data.DataSourceInfo
-import com.hmgcarapp.core.data.DataSourceKind
-import com.hmgcarapp.core.data.DataSources
-import com.hmgcarapp.core.log.HmgLog
 import com.hmgcarapp.myclimate.domain.AirGrade
 import com.hmgcarapp.myclimate.domain.Weather
 import org.json.JSONObject
-import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * 날씨/대기질 소스(Repository 패턴). 키가 없으면(release 포함) Fake: 고정 ‘가공 샘플’이며 화면에 그렇게 표시한다.
- * Remote 는 골격이다: 엔드포인트·응답 스키마는 기상청/에어코리아 연동 시 확정(아래 JSON 은 단순화한 가정). 위치는 보내지 않는다(위치 이력 미저장).
+ * 날씨/대기질 소스(Repository 패턴). 실제 소스는 Open-Meteo(키 없음, [OpenMeteoEnvironmentRepository]).
+ * Fake 는 테스트/기본 샘플 값 자리표시용이다. 기기 위치는 쓰지 않는다: 보내는 것은 사용자가 고른 지역의 대표 좌표뿐.
  */
 interface EnvironmentRepository {
     suspend fun weather(): Weather?
@@ -36,21 +31,7 @@ object EnvParser {
     fun grade(pm25: Int): AirGrade? = when { pm25 < 0 -> null; pm25 <= 15 -> AirGrade.GOOD; pm25 <= 35 -> AirGrade.NORMAL; pm25 <= 75 -> AirGrade.BAD; else -> AirGrade.VERY_BAD }
 }
 
-class RemoteEnvironmentRepository(private val apiKey: String, private val baseUrl: String = "https://example.invalid/env") : EnvironmentRepository {
-    private fun get(path: String): String? = try {
-        val c = HttpsOnly.require("$baseUrl/$path").openConnection() as HttpURLConnection
-        c.connectTimeout = 5000; c.readTimeout = 5000; c.setRequestProperty("Authorization", "Bearer $apiKey")
-        try { if (c.responseCode == 200) c.inputStream.bufferedReader().use { it.readText() } else null } finally { c.disconnect() }
-    } catch (t: Throwable) { HmgLog.w("Env", "원격 조회 실패: ${t.javaClass.simpleName}"); null }
-
-    override suspend fun weather() = get("weather")?.let(EnvParser::weather)
-    override suspend fun air() = get("air")?.let(EnvParser::air)
-}
-
 object EnvironmentRepositories {
-    fun create(apiKey: String): Pair<EnvironmentRepository, DataSourceInfo> {
-        val sel = DataSources.select("myclimate", apiKey, FakeEnvironmentRepository()) { RemoteEnvironmentRepository(it) }
-        val label = if (sel.info.kind == DataSourceKind.FAKE) "가공 샘플(날씨·대기질)" else "원격 골격(엔드포인트 미확정)"
-        return sel.repo to DataSourceInfo(sel.info.kind, label)
-    }
+    /** 키 없는 Open-Meteo 소스. 호출 시점의 선택 지역 대표 좌표만 보낸다(동의 확인은 [EnvFeed] 가 한다). */
+    fun create(region: Region, http: HttpGet = UrlConnectionHttp): EnvironmentRepository = OpenMeteoEnvironmentRepository(region, http)
 }

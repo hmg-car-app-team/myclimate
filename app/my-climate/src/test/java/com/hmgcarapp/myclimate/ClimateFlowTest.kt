@@ -133,4 +133,25 @@ class ClimateFlowTest {
         val (byUs, _) = run(s0, FlowEvent.Hw(hwOn.copy(current = ClimateSettings(recirc = true)), recircByUs = true))
         assertTrue(byUs.recirc.autoOn)
     }
+
+    @Test fun feelKeepUndoUsesAppliedDelta() {
+        val hot = Ctx(31f, 12, null)
+        val p = Persisted(listOf(Profile("p1", "나", ClimateSettings(tempC = 24f))), "p1", feelKeep = true)
+        val (s, fx) = run(FlowState(), FlowEvent.Restored(p), FlowEvent.Hw(hwOn), FlowEvent.DriveChanged(true), env = env(ctx = hot))
+        assertEquals(-1f, s.fkDelta); val t = applied(fx).single().settings.tempC!!
+        assertEquals(t + 1f, FeelKeep.undo(t, s.fkTemp, s.fkDelta))
+        assertEquals(t + 2f, FeelKeep.undo(t + 2f, s.fkTemp, s.fkDelta))
+    }
+    @Test fun feelKeepOffKeepsCurrentAsBase() {
+        val p = Persisted(listOf(Profile("p1", "나", ClimateSettings(tempC = 24f))), "p1", feelKeep = false)
+        val (s, _) = run(FlowState(), FlowEvent.Restored(p), FlowEvent.Hw(hwOn), FlowEvent.DriveChanged(true), env = env(ctx = Ctx(31f, 12, null)))
+        assertEquals(0f, s.fkDelta); assertNull(s.fkTemp)
+        assertEquals(24f, FeelKeep.undo(24f, s.fkTemp, s.fkDelta))
+    }
+    @Test fun demoValueMarkedInNote() {
+        val (s, _) = run(FlowState(), FlowEvent.Restored(persisted), FlowEvent.Hw(hwOn), FlowEvent.DriveChanged(true), env = env().copy(demo = true))
+        assertTrue(s.note!!.contains("(시연 값)"))
+        val (s2, _) = run(FlowState(), FlowEvent.Restored(persisted), FlowEvent.Hw(hwOn), FlowEvent.DriveChanged(true))
+        assertFalse(s2.note!!.contains("시연"))
+    }
 }

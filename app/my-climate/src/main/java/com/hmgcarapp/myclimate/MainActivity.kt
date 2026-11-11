@@ -16,14 +16,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        HmgLog.i("myclimate", "onCreate (API 키 ${if (BuildConfig.API_KEY.isEmpty()) "없음 -> Fake" else "있음 -> Remote 골격"})")
+        HmgLog.i("myclimate", "onCreate")
         // 위치 런타임 권한은 쓰지 않지만 core 위치 소스가 선언 권한을 요구할 수 있어 선언된 것만 요청한다
         val declared = runCatching {
             packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.GET_PERMISSIONS).requestedPermissions?.toList().orEmpty()
         }.getOrDefault(emptyList())
         val toRequest = CorePermissions.missing(this).filter { it in declared }
         if (toRequest.isNotEmpty()) requestPermissions(toRequest.toTypedArray(), 1)
-        val c = AppController(this, CarSignals.create(this), BuildConfig.API_KEY)
+        val c = AppController(this, CarSignals.create(this))
         controller = c
         setContent { PleosTheme { PleosUxRestrictionsProvider { MyClimateApp(c) } } }
     }

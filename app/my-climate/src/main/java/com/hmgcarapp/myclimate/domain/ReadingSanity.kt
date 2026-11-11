@@ -18,5 +18,5 @@ object ReadingSanity {
 /** 문구(화면과 테스트가 같은 값을 쓴다). */
 object UiTexts {
     const val CLEAR_ALL_TITLE = "모든 데이터를 삭제할까요?"
-    const val CLEAR_ALL_DESC = "프로필·규칙·학습 기록이 모두 지워지고 기본 규칙으로 돌아가요. 스마트 내외기 설정도 꺼짐으로 돌아가요. 되돌릴 수 없어요."
+    const val CLEAR_ALL_DESC = "프로필·규칙·학습 기록이 모두 지워지고 기본 규칙으로 돌아가요. 스마트 내외기 설정도 꺼짐으로 돌아가요. 인터넷 사용 동의와 선택 지역도 처음 상태로 돌아가요. 되돌릴 수 없어요."
 }

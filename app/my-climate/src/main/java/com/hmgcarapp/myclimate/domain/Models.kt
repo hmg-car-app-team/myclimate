@@ -90,6 +90,8 @@ data class Persisted(
     val selectedId: String? = null,
     val autoApply: Boolean = true,
     val smartRecirc: Boolean = false,
+    /** 체감 온도 유지(외기온 기반 목표 온도 보정). 기본 꺼짐. */
+    val feelKeep: Boolean = false,
     val rules: List<PresetRule> = DefaultRules.all,
     val habits: List<HabitStat> = emptyList(),
     /** 거절한 제안 키 -> 이 시각(벽시계 ms) 전까지 다시 제안하지 않음. */

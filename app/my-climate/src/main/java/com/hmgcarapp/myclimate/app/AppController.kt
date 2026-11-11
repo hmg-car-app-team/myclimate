@@ -10,7 +10,15 @@ import com.hmgcarapp.core.sim.SimulationHub
 import com.hmgcarapp.core.store.LocalJsonStore
 import com.hmgcarapp.core.voice.PleosSpeaker
 import com.hmgcarapp.core.voice.Speaker
+import com.hmgcarapp.myclimate.data.EnvFeed
 import com.hmgcarapp.myclimate.data.EnvironmentRepositories
+import com.hmgcarapp.myclimate.data.HttpGet
+import com.hmgcarapp.myclimate.data.NetPrefs
+import com.hmgcarapp.myclimate.data.NetPrefsData
+import com.hmgcarapp.myclimate.data.NetPrefsWriter
+import com.hmgcarapp.myclimate.data.NetWrite
+import com.hmgcarapp.myclimate.data.Regions
+import com.hmgcarapp.myclimate.data.UrlConnectionHttp
 import com.hmgcarapp.myclimate.domain.*
 import com.hmgcarapp.myclimate.vehicle.ClimateHardware
 import com.hmgcarapp.myclimate.vehicle.OutsideTemp
@@ -18,6 +26,7 @@ import com.hmgcarapp.myclimate.vehicle.PleosClimateHardware
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -30,6 +39,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.TimeZone
@@ -41,19 +52,22 @@ import java.util.TimeZone
 class AppController(
     private val context: Context,
     val signals: CarSignals,
-    apiKey: String,
     private val hw: ClimateHardware = PleosClimateHardware(context),
     private val speaker: Speaker = PleosSpeaker(context),
     /** 달력 시각(규칙 시간대·날짜·만료). */
     private val clock: () -> Long = System::currentTimeMillis,
     private val monoClock: () -> Long = SystemClock::elapsedRealtime,
+    /** 날씨·대기질 HTTP 클라이언트(테스트에서 교체). */
+    http: HttpGet = UrlConnectionHttp,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + CoroutineExceptionHandler { _, t -> HmgLog.w("App", "코루틴 예외(무시): ${t.javaClass.simpleName}") })
     private val stateStore = StateStore(LocalJsonStore.forApp(context))
     val debuggable: Boolean = SimulationHub.isDebuggable(context)
-    private val env = EnvironmentRepositories.create(apiKey)
+    private val netPrefs = NetPrefs(LocalJsonStore.forApp(context))
+    private val feed = EnvFeed({ EnvironmentRepositories.create(it, http) }, clock)
+    private var envJob: Job? = null
 
-    private val _state = MutableStateFlow(UiState(debuggable = debuggable, dataLabel = env.second.label))
+    private val _state = MutableStateFlow(UiState(debuggable = debuggable))
     val state: StateFlow<UiState> = _state
 
     private var saveJob: Job? = null
@@ -64,8 +78,6 @@ class AppController(
     private var simHour: Int? = null
     private var simWeather: Weather? = null
     private var simAir: AirGrade? = null
-    private var realWeather: Weather? = null
-    private var realAir: AirReading? = null
     private var outsideC: Float? = null
 
     private val restored: Boolean get() = !_state.value.loading
@@ -80,31 +92,77 @@ class AppController(
         scope.launch {
             OutsideTemp.flow(context) { signals.hub.state.value }.catch { HmgLog.w("Outside", "외기온도 flow 실패") }.collect { outsideC = it; refreshCtx() }
         }
-        scope.launch { while (true) { refreshEnv(); delay(ENV_REFRESH_MS) } }
+        scope.launch { loadNetPrefs() }
         scope.launch { while (true) { delay(TICK_MS); refreshCtx(); dispatch(FlowEvent.Tick) } }
         if (debuggable) simReceiver = SimReceiver.register(context, this, monoClock)
     }
 
     // ---------- 환경/상황 ----------
-    private fun airNow(): AirReading? = simAir?.let { AirReading(it, clock(), sample = true) } ?: realAir
-    private fun weatherNow(): Weather? = simWeather ?: realWeather
+    private fun airNow(): AirReading = feed.view(simWeather, simAir).air
+    private fun weatherNow(): Weather = feed.view(simWeather, simAir).weather
     private fun hourNow(): Int = simHour ?: Calendar.getInstance().apply { timeInMillis = clock() }.get(Calendar.HOUR_OF_DAY)
     private fun ctxNow() = Ctx(outsideC ?: signals.hub.state.value.takeIf { it.enabled }?.outsideTempC, hourNow(), weatherNow())
     private fun epochDay(): Long { val now = clock(); return (now + TimeZone.getDefault().getOffset(now)) / 86_400_000L }
-    private fun envNow() = Env(clock(), ctxNow(), airNow(), epochDay())
+    private fun envNow() = Env(clock(), ctxNow(), airNow(), epochDay(), demo = simWeather != null || simAir != null)
 
     private fun refreshCtx() {
-        val c = ctxNow()
-        _state.update { it.copy(ctx = c, air = airNow()?.grade, weather = c.weather, simActive = simHour != null || simWeather != null || simAir != null || signals.hub.state.value.let { h -> h.enabled && h.outsideTempC != null }) }
+        val c = ctxNow(); val v = feed.view(simWeather, simAir)
+        _state.update { it.copy(ctx = c, air = v.air.grade, weather = c.weather, envBadge = v.badge, airNote = v.airNote, regionId = feed.region.id, netConsent = feed.consent, demoWeather = simWeather, demoAir = simAir, simActive = simHour != null || simWeather != null || simAir != null || signals.hub.state.value.let { h -> h.enabled && h.outsideTempC != null }) }
     }
 
+    /** 동의했을 때만 네트워크를 쓴다(백그라운드 IO). 실패하면 마지막 성공값이 유지된다. */
     private suspend fun refreshEnv() {
-        try {
-            val (w, a) = withContext(Dispatchers.IO) { env.first.weather() to env.first.air() }
-            realWeather = w
-            realAir = a?.let { AirReading(it, clock(), sample = env.second.kind == com.hmgcarapp.core.data.DataSourceKind.FAKE) }
-        } catch (e: CancellationException) { throw e } catch (t: Throwable) { HmgLog.w("Env", "갱신 실패: ${t.javaClass.simpleName}") }
+        try { feed.refresh() } catch (e: CancellationException) { throw e } catch (t: Throwable) { HmgLog.w("Env", "갱신 실패: ${t.javaClass.simpleName}") }
         refreshCtx()
+    }
+
+    private fun restartEnvLoop() {
+        envJob?.cancel()
+        envJob = scope.launch { while (true) { refreshEnv(); delay(ENV_REFRESH_MS) } }
+    }
+
+    private suspend fun loadNetPrefs() {
+        val loaded = withContext(Dispatchers.IO) { netPrefs.load() }
+        val d = netLoadResult(netWiped, loaded) ?: return // 읽는 중 삭제됐다면 적용을 건너뜀(reset 이 이미 기본값을 세웠고 이후 사용자 선택도 보존)
+        feed.setRegion(Regions.byId(d.regionId)); feed.setConsent(d.consent)
+        _state.update { it.copy(netLoaded = true, netDecided = d.decided) }
+        refreshCtx()
+        restartEnvLoop()
+    }
+
+    @Volatile private var netWiped = false
+    private val netSaveMutex = Mutex()
+    @Volatile private var latestNet: NetPrefsData? = null
+
+    /** 단일 순차 저장: 요청이 겹쳐도 마지막 요청 값만 쓰고(순서 역전 없음), 취소돼도 끝까지 쓴다. */
+    private fun saveNetPrefs() {
+        latestNet = NetPrefsData(decided = _state.value.netDecided, consent = feed.consent, regionId = feed.region.id)
+        scope.launch {
+            val r = withContext(NonCancellable) {
+                netSaveMutex.withLock {
+                    val d = latestNet ?: return@withLock null
+                    latestNet = null
+                    withContext(Dispatchers.IO) { NetPrefsWriter(netPrefs).write(d) }
+                }
+            }
+            if (r == NetWrite.FAILED_MAY_REAPPEAR) toast("동의 철회를 저장하지 못했어요. 앱을 다시 열면 켜질 수 있어요")
+        }
+    }
+
+    // ---------- 날씨·대기질 네트워크 사용(정차 중에만) ----------
+    /** 동의/철회. 동의 전에는 외부 호출이 없고, 철회하면 받은 값을 버리고 이후 호출하지 않는다. */
+    fun setNetConsent(on: Boolean) = parkedOnly {
+        if (!_state.value.netLoaded) return@parkedOnly
+        feed.setConsent(on)
+        _state.update { it.copy(netDecided = true, netPromptSnoozed = false) }
+        saveNetPrefs(); refreshCtx(); restartEnvLoop()
+    }
+    /** 최초 고지를 이번 실행에서만 닫는다(결정은 저장하지 않음 -> 호출 없음). */
+    fun snoozeNetPrompt() = _state.update { it.copy(netPromptSnoozed = true) }
+    fun selectRegion(id: String) = parkedOnly {
+        if (!_state.value.netLoaded) return@parkedOnly
+        feed.setRegion(Regions.byId(id))
+        saveNetPrefs(); refreshCtx(); restartEnvLoop()
     }
 
     // ---------- 이벤트 -> reducer -> 효과 ----------
@@ -165,7 +223,8 @@ class AppController(
     /** 현재 차량 값(읽은 것만)으로 새 프로필을 만든다. */
     fun addProfile() = parkedOnly {
         val st = _state.value.fs
-        val base = st.hw.current.let { c -> if (c.isEmpty) ClimateSettings(tempC = 22f, fan = 3, ac = true, recirc = false, seatHeat = 0, seatVent = 0, wheelHeat = 0) else c }
+        // 체감 유지 보정이 적용된 값이면 보정량만큼 되돌려 기준 온도로 저장한다(다음 적용 때 이중 보정 방지)
+        val base = st.hw.current.let { c -> if (c.isEmpty) ClimateSettings(tempC = 22f, fan = 3, ac = true, recirc = false, seatHeat = 0, seatVent = 0, wheelHeat = 0) else c.copy(tempC = FeelKeep.undo(c.tempC, st.fkTemp, st.fkDelta)) }
         var added = true
         editP { p -> Edits.addProfile(p, "", base) ?: p.also { added = false } }
         if (!added) toast("프로필은 최대 ${Edits.MAX_PROFILES}개예요")
@@ -175,6 +234,10 @@ class AppController(
     fun deleteProfile(id: String) = parkedOnly { editP { Edits.deleteProfile(it, id) } }
     fun setAutoApply(on: Boolean) = parkedOnly { editP { it.copy(autoApply = on) } }
     fun setSmartRecirc(on: Boolean) = parkedOnly { editP { it.copy(smartRecirc = on) } }
+    fun setFeelKeep(on: Boolean) = parkedOnly { editP { it.copy(feelKeep = on) } }
+    /** 시연용 날씨/대기질 선택(정차 중, 메모리 전용). null = 실제/기본 값. */
+    fun setDemoWeather(w: Weather?) = parkedOnly { simWeather = w; refreshCtx() }
+    fun setDemoAir(a: AirGrade?) = parkedOnly { simAir = a; refreshCtx() }
     fun applyNow() = parkedOnly { dispatch(FlowEvent.ApplyNow) }
 
     fun upsertRule(r: PresetRule) = parkedOnly {
@@ -204,6 +267,21 @@ class AppController(
             val ok = withContext(Dispatchers.IO) { stateStore.clearAll { persistedCopy() } }
             _state.update { it.copy(saveHeld = !stateStore.writable, corruptKept = if (ok) false else it.corruptKept) }
             if (!ok) toast("삭제하지 못했어요. 잠시 후 다시 시도해 주세요")
+        }
+        resetNetPrefs()
+    }
+
+    /** 인터넷 동의·지역·실시간 값을 처음 상태로: 메모리 즉시 초기화(이후 호출 없음), 파일은 직렬화 큐로 삭제, 최초 고지가 다시 뜬다. */
+    private fun resetNetPrefs() {
+        netWiped = true
+        envJob?.cancel(); envJob = null
+        feed.resetAll()
+        latestNet = null // 대기 중이던 저장 요청은 버린다
+        _state.update { it.copy(netLoaded = true, netDecided = false, netPromptSnoozed = false) }
+        refreshCtx()
+        scope.launch(start = CoroutineStart.ATOMIC) {
+            val r = withContext(NonCancellable) { netSaveMutex.withLock { withContext(Dispatchers.IO) { NetPrefsWriter(netPrefs).reset() } } }
+            if (r == NetWrite.FAILED_MAY_REAPPEAR) toast("동의 정보를 지우지 못했어요. 앱을 다시 켜면 인터넷 사용 동의가 다시 켜질 수 있어요")
         }
     }
 
@@ -269,3 +347,6 @@ class AppController(
         const val ENV_REFRESH_MS = 10 * 60_000L
     }
 }
+
+/** 늦게 끝난 읽기 결과 적용 여부: 삭제됐다면 null(적용 생략), 아니면 읽은 값. */
+internal fun netLoadResult(wiped: Boolean, loaded: NetPrefsData): NetPrefsData? = if (wiped) null else loaded

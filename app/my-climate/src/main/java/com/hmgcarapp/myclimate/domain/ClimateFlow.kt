@@ -20,7 +20,7 @@ data class ClimateCaps(
 data class HwState(val connected: Boolean = false, val caps: ClimateCaps = ClimateCaps(), val current: ClimateSettings = ClimateSettings(), val error: String? = null)
 
 /** 이벤트 처리에 쓰는 환경(시간·상황·대기질을 주입). */
-data class Env(val nowMs: Long, val ctx: Ctx, val air: AirReading?, val epochDay: Long)
+data class Env(val nowMs: Long, val ctx: Ctx, val air: AirReading?, val epochDay: Long, /** 시연 날씨/대기질 선택이 규칙 판단에 쓰였는지. */ val demo: Boolean = false)
 
 data class FlowState(
     val p: Persisted = Persisted(),
@@ -38,6 +38,9 @@ data class FlowState(
     val note: String? = null,
     /** [note] 가 스마트 내외기 성공 문구인지(사용자가 내기를 바꾸면 모순되므로 비운다). */
     val smartNote: Boolean = false,
+    /** 마지막 적용에서 체감 유지 보정이 들어간 경우의 보정 후 목표 온도와 보정량(없으면 null/0). 프로필 기준 온도 복원에 쓴다. */
+    val fkTemp: Float? = null,
+    val fkDelta: Float = 0f,
 )
 
 sealed interface FlowEvent {
@@ -138,14 +141,17 @@ object ClimateFlow {
         if (!s.parked || !s.hw.connected || !s.hw.caps.any) return s to emptyList()
         val base = s.p.selected?.settings ?: ClimateSettings()
         val r = PresetEngine.resolve(base, s.p.rules, env.ctx)
-        val target = s.hw.caps.filter(r.settings)
+        val fk = FeelKeep.adjust(r.settings.tempC, env.ctx.outsideC, s.p.feelKeep, s.hw.caps.limits)
+        val target = s.hw.caps.filter(if (fk.applied) r.settings.copy(tempC = fk.tempC) else r.settings)
         if (target.isEmpty) return s.copy(appliedThisEpisode = true, note = "적용할 설정이 없어요", smartNote = false) to emptyList()
         val why = buildString {
             append(reason)
             s.p.selected?.let { append(" · ${it.name}") }
             if (r.applied.isNotEmpty()) append(" · 규칙 ${r.applied.joinToString(",") { it.name }}")
+            if (env.demo) append(" (시연 값)")
+            if (fk.applied && target.tempC != null) append(" · 체감 유지 ${FeelKeep.label(fk.delta)}(외기온 기반)")
         }
-        return s.copy(appliedThisEpisode = true, note = why, smartNote = false) to listOf(FlowEffect.Apply(target, why))
+        return s.copy(appliedThisEpisode = true, note = why, smartNote = false, fkTemp = if (fk.applied && target.tempC != null) target.tempC else null, fkDelta = if (fk.applied && target.tempC != null) fk.delta else 0f) to listOf(FlowEffect.Apply(target, why))
     }
 
     private fun tick(s: FlowState, env: Env): Pair<FlowState, List<FlowEffect>> {

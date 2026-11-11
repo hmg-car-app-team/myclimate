@@ -16,6 +16,8 @@
     <uses-permission android:name="pleos.car.permission.CAR_SEATS" />
     <uses-permission android:name="pleos.car.permission.CONTROL_CAR_SEATS" />
     <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+    <!-- 날씨·대기질(Open-Meteo, HTTPS 전용): 사용자가 동의한 뒤에만 선택 지역의 대표 좌표를 보낸다. 위치 권한은 쓰지 않는다 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 위치·포그라운드 서비스·알림·부팅 수신기는 사용하지 않아 선언하지 않는다(위치 이력 미저장) -->
 
     <application

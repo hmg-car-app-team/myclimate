@@ -1,6 +1,7 @@
 package com.hmgcarapp.myclimate.domain
 
-data class AirReading(val grade: AirGrade, val atMs: Long, val sample: Boolean)
+/** [sample]=실측 아님(시연 값 또는 기본 샘플). [placeholder]=시연도 실측도 아닌 기본 샘플로, 자동 전환의 근거가 되지 않는다. */
+data class AirReading(val grade: AirGrade, val atMs: Long, val sample: Boolean, val placeholder: Boolean = false)
 
 data class RecircState(
     /** 내기 순환이 켜진 것을 처음 본 시각(꺼짐=null). */
@@ -52,7 +53,7 @@ object RecircPolicy {
         false -> s.copy(onSince = null, autoOn = false, holdUntil = if (byUs) s.holdUntil else now + HOLD_MS)
     }
 
-    fun airFresh(a: AirReading?, now: Long) = a != null && now >= a.atMs && now - a.atMs <= AIR_FRESH_MS
+    fun airFresh(a: AirReading?, now: Long) = a != null && !a.placeholder && now >= a.atMs && now - a.atMs <= AIR_FRESH_MS
 
     fun step(s: RecircState, recircOn: Boolean?, air: AirReading?, now: Long): Pair<RecircState, RecircDecision> {
         if (recircOn == null) return s to RecircDecision.None

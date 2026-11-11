@@ -31,7 +31,7 @@ object StateCodec {
     fun encode(p: Persisted): JSONObject = JSONObject().apply {
         put("v", VERSION)
         put("selectedId", p.selectedId ?: JSONObject.NULL)
-        put("autoApply", p.autoApply); put("smartRecirc", p.smartRecirc)
+        put("autoApply", p.autoApply); put("smartRecirc", p.smartRecirc); put("feelKeep", p.feelKeep)
         put("profiles", JSONArray().also { a -> p.profiles.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("s", encodeSettings(it.settings))) } })
         put("rules", JSONArray().also { a -> p.rules.forEach { r ->
             a.put(JSONObject().put("id", r.id).put("name", r.name).put("enabled", r.enabled).put("source", r.source.name).put("patch", encodeSettings(r.patch)).also { o ->
@@ -90,6 +90,6 @@ object StateCodec {
         val dismissed = HashMap<String, Long>()
         o.optJSONObject("dismissed")?.let { d -> d.keys().forEach { k -> if (dismissed.size < 40) dismissed[k] = d.optLong(k, 0L) } }
         val sel = o.optString("selectedId", "").takeIf { id -> profiles.any { it.id == id } } ?: profiles.firstOrNull()?.id
-        return Persisted(profiles, sel, o.optBoolean("autoApply", true), o.optBoolean("smartRecirc", false), rules, habits, dismissed)
+        return Persisted(profiles, sel, o.optBoolean("autoApply", true), o.optBoolean("smartRecirc", false), o.optBoolean("feelKeep", false), rules, habits, dismissed)
     }
 }
