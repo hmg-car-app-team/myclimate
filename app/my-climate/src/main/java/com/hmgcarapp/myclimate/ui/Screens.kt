@@ -85,6 +85,13 @@ fun MyClimateApp(c: AppController) {
             onDismissRequest = { c.dismissSuggestion() }, cancelLabel = "지금은 안 함",
         )
     }
+    if (!driving && s.fs.pending == null) s.seatOffer?.let { o ->
+        PleosPopup(
+            title = "프로필로 맞출까요?", description = o.text,
+            confirmLabel = "맞추기", onConfirm = { c.acceptSeatOffer() },
+            onDismissRequest = { c.dismissSeatOffer() }, cancelLabel = "지금은 안 함",
+        )
+    }
     if (!driving && s.netLoaded && !s.netDecided && !s.netPromptSnoozed) NetNoticePopup(c)
     PleosScaffold(
         title = "마이클라이밋",
@@ -348,7 +355,7 @@ private fun SettingsPage(c: AppController, s: UiState) {
 }
 
 // ---------------- 날씨·대기질 네트워크 사용 ----------------
-private const val NET_NOTICE = "선택한 지역의 대표 좌표(예: 서울시청 부근)를 Open-Meteo 서버(open-meteo.com)로 보내 날씨와 대기질을 받아요. 계정·기기·차량 식별자와 기기 위치는 보내지 않아요(서버는 접속 IP 를 볼 수 있어요). 동의하지 않으면 인터넷을 쓰지 않고 기본 샘플을 보여줘요. 설정에서 언제든 철회할 수 있어요."
+private const val NET_NOTICE = "선택한 지역의 대표 좌표(예: 서울시청 부근)를 Open-Meteo 서버(open-meteo.com)로 보내 날씨와 대기질을 받아요. 계정·기기·차량 식별자와 기기 위치는 보내지 않아요(서버는 접속 IP 를 볼 수 있어요). 동의하지 않으면 인터넷을 쓰지 않고 기본 샘플을 보여줘요. 설정에서 언제든 철회할 수 있어요. Open-Meteo 는 서버 로그를 최대 90일 보관해요(open-meteo.com/en/terms)."
 private const val NET_ATTRIBUTION = "날씨: Open-Meteo.com (CC BY 4.0). 대기질: Copernicus Atmosphere Monitoring Service(CAMS) 모델 데이터를 Open-Meteo 로 받아요. 대기질은 약 45km 격자 모델 추정이라 참고용이에요. 무료 비상업 이용 범위의 시연용 연동이에요."
 
 @Composable

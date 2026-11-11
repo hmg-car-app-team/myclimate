@@ -19,6 +19,8 @@ import com.hmgcarapp.myclimate.data.NetPrefsWriter
 import com.hmgcarapp.myclimate.data.NetWrite
 import com.hmgcarapp.myclimate.data.Regions
 import com.hmgcarapp.myclimate.data.UrlConnectionHttp
+import com.hmgcarapp.myclimate.vehicle.SeatOccupancySource
+import com.hmgcarapp.myclimate.domain.SeatOfferPolicy
 import com.hmgcarapp.myclimate.domain.*
 import com.hmgcarapp.myclimate.vehicle.ClimateHardware
 import com.hmgcarapp.myclimate.vehicle.OutsideTemp
@@ -87,6 +89,7 @@ class AppController(
         hw.onState = { st, byUs -> scope.launch { dispatch(FlowEvent.Hw(st, byUs)) } }
         hw.onApplyDone = { r -> scope.launch { dispatch(FlowEvent.ApplyResult(r)); if (_state.value.fs.parked) toast(HvacErrors.summary(r)) } }
         hw.onUserOn = { a, l -> scope.launch { dispatch(FlowEvent.UserTurnedOn(a, l)) } }
+        (hw as? SeatOccupancySource)?.onOccupied = { occ -> scope.launch { onSeatOccupied(occ) } }
         hwJob = scope.launch { hw.run() }
         scope.launch { restore() }
         scope.launch {
@@ -197,6 +200,7 @@ class AppController(
         } finally {
             _state.update { it.copy(loading = false, saveHeld = res.readError, corruptKept = res.corrupt && res.quarantined) }
             dispatch(FlowEvent.Restored(res.p))
+            evalSeatOffer()
         }
     }
 
@@ -207,7 +211,34 @@ class AppController(
         val parked = d == DriveState.PARKED
         if (_state.value.fs.parked == parked) return
         dispatch(FlowEvent.DriveChanged(parked))
+        evalSeatOffer()
     }
+
+    // ---------- 착석 기반 프로필 제안(확인 후에만 적용) ----------
+    private var seatOccupied: Boolean? = null
+    private var seatHandled = false
+
+    internal fun onSeatOccupied(occ: Boolean?) {
+        if (occ != true) seatHandled = false
+        seatOccupied = occ
+        evalSeatOffer()
+    }
+
+    private fun evalSeatOffer() {
+        val fs = _state.value.fs
+        val o = SeatOfferPolicy.offer(fs.p, restored, fs.parked, seatOccupied, seatHandled)
+        _state.update { if (it.seatOffer == o) it else it.copy(seatOffer = o) }
+    }
+
+    /** 확인: 제안한 프로필이 지금도 마지막 사용 프로필일 때만 적용한다. */
+    fun acceptSeatOffer() = parkedOnly {
+        val offer = _state.value.seatOffer ?: return@parkedOnly
+        seatHandled = true
+        _state.update { it.copy(seatOffer = null) }
+        if (_state.value.fs.p.selectedId == offer.profileId) dispatch(FlowEvent.ApplyNow)
+    }
+
+    fun dismissSeatOffer() { seatHandled = true; _state.update { it.copy(seatOffer = null) } }
 
     // ---------- 사용자 조작 (모두 정차 중에만) ----------
     private inline fun parkedOnly(block: () -> Unit) { if (!_state.value.fs.parked || !restored) return; block() }

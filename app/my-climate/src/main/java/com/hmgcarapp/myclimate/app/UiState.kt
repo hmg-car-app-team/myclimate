@@ -29,4 +29,6 @@ data class UiState(
     val saveHeld: Boolean = false,
     val corruptKept: Boolean = false,
     val toast: String? = null,
+    /** 착석 + 정차 시 '마지막으로 사용한 프로필' 확인 제안(자동 적용 아님). */
+    val seatOffer: com.hmgcarapp.myclimate.domain.SeatOffer? = null,
 )

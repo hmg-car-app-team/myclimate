@@ -58,12 +58,19 @@ interface ClimateHardware {
 }
 
 /**
+ * 운전석 착석 신호(읽기 전용, 권한 CAR_SEATS 는 이미 선언됨). 지원하지 않거나 영역을 못 찾으면 콜백은 오지 않는다.
+ * 착석은 '누군가 앉았다'일 뿐 운전자를 식별하지 않는다.
+ */
+interface SeatOccupancySource { var onOccupied: (Boolean?) -> Unit }
+
+/**
  * Pleos Vehicle SDK HVAC / Seat / SteeringWheel 어댑터. 운전석(1열 좌) 기준.
  * 연결·복구는 core 의 [ManagedConnection] 이 맡는다(여기서 재연결 로직을 만들지 않는다). 모든 SDK 콜백은 Unit 을 반환하고 세대(gen) 필터를 거친다.
  * 권한: pleos.car.permission.CAR_CLIMATE / CONTROL_CAR_CLIMATE / CAR_SEATS / CONTROL_CAR_SEATS (조회·제어 각각).
  * capability: 항목별 check*Capabilities 의 AccessType 이 WRITE/READ_WRITE 이고 운전석 영역이 있어야 쓰기 가능으로 본다. 범위(min/max)는 bounds 로 맞춘다.
  */
-class PleosClimateHardware(context: Context, private val clock: () -> Long = SystemClock::elapsedRealtime) : ClimateHardware {
+class PleosClimateHardware(context: Context, private val clock: () -> Long = SystemClock::elapsedRealtime) : ClimateHardware, SeatOccupancySource {
+    override var onOccupied: (Boolean?) -> Unit = {}
     override var onState: (HwState, Boolean) -> Unit = { _, _ -> }
     override var onUserOn: (HabitAction, Int) -> Unit = { _, _ -> }
     override var onApplyDone: (List<ItemResult>) -> Unit = {}
@@ -222,6 +229,10 @@ class PleosClimateHardware(context: Context, private val clock: () -> Long = Sys
         seat.checkSeatVentilationCapabilities({ cfg: CapabilityConfig, m: Map<SeatArea, AreaBounds<Int>> ->
             val a = pick("seatVent", m.keys); val b = a?.let { m[it] }
             capDone(gen, "seatVent", cfg, a) { cp, ok -> cp.copy(seatVent = ok, limits = if (b != null) cp.limits.copy(seatVentMax = b.maxValue.coerceAtLeast(1)) else cp.limits) } }, fail("seatVent"))
+        // 착석: 제안 전용 읽기. pendingCaps 에 넣지 않아 기존 연결 판정에 영향이 없다. 실패하면 영역 없음 -> 제안 안 함.
+        seat.checkSeatOccupancyCapabilities({ _: CapabilityConfig, l: List<SeatArea> ->
+            conn.ifCurrent(gen) { pick("occ", l)?.let { a -> synchronized(lock) { areas["occ"] = a } } }
+        }, { e -> HmgLog.w("Climate", "착석 capability 실패: ${e.javaClass.simpleName}") })
         wheel.checkHvacSteeringWheelHeatCapabilities({ cfg: CapabilityConfig, b: AreaBounds<Int> ->
             capDone(gen, "wheelHeat", cfg, null, needsArea = false) { cp, ok -> cp.copy(wheelHeat = ok, limits = cp.limits.copy(wheelHeatMax = b.maxValue.coerceAtLeast(1))) } }, fail("wheelHeat"))
     }
@@ -239,6 +250,9 @@ class PleosClimateHardware(context: Context, private val clock: () -> Long = Sys
         if (cp.temp) h.getHvacTemperature(areaOf("temp"), TemperatureUnit.CELSIUS, { x -> okAny("temp")(x?.toDouble()) }, bad)
         if (cp.seatHeat) seat.getHvacSeatTemperature(areaOf("seatHeat"), { x -> okAny("seatHeat")(x?.toDouble()) }, bad)
         if (cp.seatVent) seat.getHvacSeatVentilationState(areaOf("seatVent"), { x -> okAny("seatVent")(x?.toDouble()) }, bad)
+        synchronized(lock) { areas["occ"] }?.let { a ->
+            seat.getCurrentSeatOccupancy(a, { b -> conn.ifCurrent(gen) { onOccupied(b) } }, { _ -> })
+        }
         if (cp.wheelHeat) wheel.getHvacSteeringWheelHeatState({ x -> okAny("wheelHeat")(x?.toDouble()) }, bad)
     }
 
