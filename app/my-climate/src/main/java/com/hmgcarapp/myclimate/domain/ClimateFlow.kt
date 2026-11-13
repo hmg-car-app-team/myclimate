@@ -143,13 +143,12 @@ object ClimateFlow {
         val r = PresetEngine.resolve(base, s.p.rules, env.ctx)
         val fk = FeelKeep.adjust(r.settings.tempC, env.ctx.outsideC, s.p.feelKeep, s.hw.caps.limits)
         val target = s.hw.caps.filter(if (fk.applied) r.settings.copy(tempC = fk.tempC) else r.settings)
-        if (target.isEmpty) return s.copy(appliedThisEpisode = true, note = "적용할 설정이 없어요", smartNote = false) to emptyList()
+        if (target.isEmpty) return s.copy(appliedThisEpisode = true, note = null, smartNote = false) to emptyList()
         val why = buildString {
             append(reason)
             s.p.selected?.let { append(" · ${it.name}") }
             if (r.applied.isNotEmpty()) append(" · 규칙 ${r.applied.joinToString(",") { it.name }}")
-            if (env.demo) append(" (시연 값)")
-            if (fk.applied && target.tempC != null) append(" · 체감 유지 ${FeelKeep.label(fk.delta)}(외기온 기반)")
+            if (fk.applied && target.tempC != null) append(" · 체감 유지 ${FeelKeep.label(fk.delta)}")
         }
         return s.copy(appliedThisEpisode = true, note = why, smartNote = false, fkTemp = if (fk.applied && target.tempC != null) target.tempC else null, fkDelta = if (fk.applied && target.tempC != null) fk.delta else 0f) to listOf(FlowEffect.Apply(target, why))
     }

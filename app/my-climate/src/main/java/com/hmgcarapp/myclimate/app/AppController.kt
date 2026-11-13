@@ -87,7 +87,7 @@ class AppController(
     init {
         signals.hub.setDriveOverride(null); signals.hub.setEnabled(false)
         hw.onState = { st, byUs -> scope.launch { dispatch(FlowEvent.Hw(st, byUs)) } }
-        hw.onApplyDone = { r -> scope.launch { dispatch(FlowEvent.ApplyResult(r)); if (_state.value.fs.parked) toast(HvacErrors.summary(r)) } }
+        hw.onApplyDone = { r -> scope.launch { dispatch(FlowEvent.ApplyResult(r)); if (_state.value.fs.parked) HvacErrors.summary(r).takeIf { it.isNotBlank() }?.let { toast(it) } } }
         hw.onUserOn = { a, l -> scope.launch { dispatch(FlowEvent.UserTurnedOn(a, l)) } }
         (hw as? SeatOccupancySource)?.onOccupied = { occ -> scope.launch { onSeatOccupied(occ) } }
         hwJob = scope.launch { hw.run() }
@@ -110,7 +110,7 @@ class AppController(
 
     private fun refreshCtx() {
         val c = ctxNow(); val v = feed.view(simWeather, simAir)
-        _state.update { it.copy(ctx = c, air = v.air.grade, weather = c.weather, envBadge = v.badge, airNote = v.airNote, regionId = feed.region.id, netConsent = feed.consent, demoWeather = simWeather, demoAir = simAir, simActive = simHour != null || simWeather != null || simAir != null || signals.hub.state.value.let { h -> h.enabled && h.outsideTempC != null }) }
+        _state.update { it.copy(ctx = c, air = v.air.grade, weather = c.weather, envBadge = v.badge, regionId = feed.region.id, netConsent = feed.consent, demoWeather = simWeather, demoAir = simAir, simActive = simHour != null || simWeather != null || simAir != null || signals.hub.state.value.let { h -> h.enabled && h.outsideTempC != null }) }
     }
 
     /** 동의했을 때만 네트워크를 쓴다(백그라운드 IO). 실패하면 마지막 성공값이 유지된다. */
@@ -148,7 +148,7 @@ class AppController(
                     withContext(Dispatchers.IO) { NetPrefsWriter(netPrefs).write(d) }
                 }
             }
-            if (r == NetWrite.FAILED_MAY_REAPPEAR) toast("동의 철회를 저장하지 못했어요. 앱을 다시 열면 켜질 수 있어요")
+            if (r == NetWrite.FAILED_MAY_REAPPEAR) toast("동의 철회를 저장하지 못했어요")
         }
     }
 
@@ -256,9 +256,7 @@ class AppController(
         val st = _state.value.fs
         // 체감 유지 보정이 적용된 값이면 보정량만큼 되돌려 기준 온도로 저장한다(다음 적용 때 이중 보정 방지)
         val base = st.hw.current.let { c -> if (c.isEmpty) ClimateSettings(tempC = 22f, fan = 3, ac = true, recirc = false, seatHeat = 0, seatVent = 0, wheelHeat = 0) else c.copy(tempC = FeelKeep.undo(c.tempC, st.fkTemp, st.fkDelta)) }
-        var added = true
-        editP { p -> Edits.addProfile(p, "", base) ?: p.also { added = false } }
-        if (!added) toast("프로필은 최대 ${Edits.MAX_PROFILES}개예요")
+        editP { p -> Edits.addProfile(p, "", base) ?: p }
     }
 
     fun editProfile(id: String, f: (ClimateSettings) -> ClimateSettings) = parkedOnly { editP { p -> Edits.updateProfile(p, id) { it.copy(settings = f(it.settings)) } } }
@@ -272,16 +270,12 @@ class AppController(
     fun applyNow() = parkedOnly { dispatch(FlowEvent.ApplyNow) }
 
     fun upsertRule(r: PresetRule) = parkedOnly {
-        var ok = true
-        editP { p -> Edits.upsertRule(p, r) ?: p.also { ok = false } }
-        if (!ok) toast("규칙은 최대 ${Edits.MAX_RULES}개예요")
+        editP { p -> Edits.upsertRule(p, r) ?: p }
     }
     fun newRuleId(): String = Edits.newId("u", _state.value.fs.p.rules.map { it.id })
     fun deleteRule(id: String) = parkedOnly { editP { Edits.deleteRule(it, id) } }
     fun toggleRule(id: String) = parkedOnly { editP { Edits.toggleRule(it, id) } }
     fun acceptSuggestion() = parkedOnly {
-        val fs = _state.value.fs
-        if (fs.pending != null && fs.p.rules.size >= Edits.MAX_RULES && fs.p.rules.none { it.id == HabitLearner.ruleId(fs.pending.key) }) toast("규칙이 가득 찼어요")
         dispatch(FlowEvent.SuggestAccepted)
     }
     fun dismissSuggestion() = parkedOnly { dispatch(FlowEvent.SuggestDismissed) }
@@ -297,7 +291,7 @@ class AppController(
         scope.launch {
             val ok = withContext(Dispatchers.IO) { stateStore.clearAll { persistedCopy() } }
             _state.update { it.copy(saveHeld = !stateStore.writable, corruptKept = if (ok) false else it.corruptKept) }
-            if (!ok) toast("삭제하지 못했어요. 잠시 후 다시 시도해 주세요")
+            if (!ok) toast("삭제하지 못했어요")
         }
         resetNetPrefs()
     }
@@ -312,7 +306,7 @@ class AppController(
         refreshCtx()
         scope.launch(start = CoroutineStart.ATOMIC) {
             val r = withContext(NonCancellable) { netSaveMutex.withLock { withContext(Dispatchers.IO) { NetPrefsWriter(netPrefs).reset() } } }
-            if (r == NetWrite.FAILED_MAY_REAPPEAR) toast("동의 정보를 지우지 못했어요. 앱을 다시 켜면 인터넷 사용 동의가 다시 켜질 수 있어요")
+            if (r == NetWrite.FAILED_MAY_REAPPEAR) toast("동의 철회를 저장하지 못했어요")
         }
     }
 
@@ -354,7 +348,7 @@ class AppController(
     private fun onWriteResult(r: WriteResult) {
         when (r) {
             WriteResult.WROTE -> _state.update { if (it.corruptKept) it.copy(corruptKept = false) else it }
-            WriteResult.FAILED -> _state.update { it.copy(saveHeld = true, toast = "저장하지 못했어요. 이번 실행 동안 저장을 멈춰요") }
+            WriteResult.FAILED -> _state.update { it.copy(saveHeld = true, toast = "저장하지 못했어요") }
             WriteResult.UNCHANGED, WriteResult.HELD -> Unit
         }
     }

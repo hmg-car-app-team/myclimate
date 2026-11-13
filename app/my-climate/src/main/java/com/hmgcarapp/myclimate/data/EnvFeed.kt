@@ -10,7 +10,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 /** 화면·규칙이 쓰는 환경 값과 출처 표기. */
-data class EnvView(val weather: Weather, val air: AirReading, val badge: String, val airNote: String?, val source: EnvSource)
+data class EnvView(val weather: Weather, val air: AirReading, val badge: String, val source: EnvSource)
 
 enum class EnvSource { DEMO, LIVE, LAST, SAMPLE }
 
@@ -83,8 +83,7 @@ class EnvFeed(
                 else -> "기본 샘플"
             }
         }
-        val airReal = simAir == null && a != null
-        return EnvView(weatherNow, airNow, badge, if (airReal) AIR_NOTE else null, source)
+        return EnvView(weatherNow, airNow, badge, source)
     }
 
     private fun itemLabel(src: EnvSource, s: Stamped<*>?) = when (src) {
@@ -100,6 +99,5 @@ class EnvFeed(
         const val LIVE_FRESH_MS = 25 * 60_000L
         val SAMPLE_WEATHER = Weather.CLEAR
         val SAMPLE_AIR = AirGrade.NORMAL
-        const val AIR_NOTE = "대기질은 참고용 추정이에요(약 45km 격자 모델, 실제 측정소 값과 다를 수 있어요)"
     }
 }

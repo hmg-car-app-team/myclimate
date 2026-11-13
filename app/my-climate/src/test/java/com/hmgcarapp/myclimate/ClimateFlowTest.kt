@@ -148,10 +148,9 @@ class ClimateFlowTest {
         assertEquals(0f, s.fkDelta); assertNull(s.fkTemp)
         assertEquals(24f, FeelKeep.undo(24f, s.fkTemp, s.fkDelta))
     }
-    @Test fun demoValueMarkedInNote() {
+    @Test fun demoValueNotShownInNote() {
         val (s, _) = run(FlowState(), FlowEvent.Restored(persisted), FlowEvent.Hw(hwOn), FlowEvent.DriveChanged(true), env = env().copy(demo = true))
-        assertTrue(s.note!!.contains("(시연 값)"))
-        val (s2, _) = run(FlowState(), FlowEvent.Restored(persisted), FlowEvent.Hw(hwOn), FlowEvent.DriveChanged(true))
-        assertFalse(s2.note!!.contains("시연"))
+        assertFalse(s.note!!.contains("시연"))
+        assertTrue(s.note!!.startsWith("자동 적용")) // 적용 상태 한 줄은 그대로
     }
 }

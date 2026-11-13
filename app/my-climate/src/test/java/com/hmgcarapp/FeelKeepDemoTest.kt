@@ -35,7 +35,7 @@ class FeelKeepDemoTest {
             )
             val (n, fx) = ClimateFlow.reduce(s, FlowEvent.ApplyNow, Env(0, Ctx(out, 12, null), null, 0))
             val a = fx.filterIsInstance<FlowEffect.Apply>().firstOrNull()
-            if (a != null && on && out != null) assertTrue(n.note!!.contains("외기온 기반"))
+            if (a != null && on && out != null) assertTrue(n.note!!.contains("체감 유지"))
             return a?.settings
         }
         assertEquals(22f, run(true, 36f)?.tempC); assertEquals(24f, run(false, 36f)?.tempC); assertEquals(24f, run(true, null)?.tempC)

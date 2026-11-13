@@ -21,12 +21,7 @@ object HvacErrors {
     }
 
     fun userMessage(code: Int?): String = when (code) {
-        1 -> "값이 올바르지 않아요"
-        2 -> "지금은 바꿀 수 없어요(공조가 꺼져 있을 수 있어요)"
-        3 -> "잠시 후 다시 시도해 주세요"
-        4 -> "차량 응답이 늦어요"
-        5 -> "공조를 바꿀 권한이 없어요"
-        else -> "알 수 없는 오류예요"
+        else -> "요청에 실패했어요"
     }
 
     fun shortReason(code: Int?): String = when (code) { 1 -> "값 오류"; 2 -> "공조 꺼짐?"; 3 -> "재시도 필요"; 4 -> "응답 지연"; 5 -> "권한"; else -> "알 수 없음" }
@@ -36,9 +31,9 @@ object HvacErrors {
         "conn" -> "차량 연결"; "seatHeat" -> "시트 열선"; "seatVent" -> "시트 통풍"; "wheelHeat" -> "핸들 열선"; else -> kind
     }
 
-    /** 예: "6건 적용 · 풍량 실패(공조 꺼짐?)". 전부 실패면 "적용 실패 · …", 항목이 없으면 "적용할 설정이 없어요". */
+    /** 예: "6건 적용 · 풍량 실패(공조 꺼짐?)". 전부 실패면 "적용 실패 · …", 항목이 없으면 빈 문자열. */
     fun summary(results: List<ItemResult>): String {
-        if (results.isEmpty()) return "적용할 설정이 없어요"
+        if (results.isEmpty()) return ""
         val ok = results.count { it.ok }
         val fails = results.filter { !it.ok }.joinToString(", ") { "${label(it.kind)} 실패(${shortReason(it.code)})" }
         return when { fails.isEmpty() -> "${ok}건 적용"; ok == 0 -> "적용 실패 · $fails"; else -> "${ok}건 적용 · $fails" }

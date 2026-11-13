@@ -12,7 +12,6 @@ data class UiState(
     val weather: Weather? = null,
     /** 환경 값 출처 배지(실시간/마지막 값/기본 샘플/시연 값). */
     val envBadge: String = "기본 샘플",
-    val airNote: String? = null,
     val regionId: String = "seoul",
     /** 날씨·대기질 네트워크 사용 동의 상태(저장된 설정을 읽기 전에는 netLoaded=false). */
     val netLoaded: Boolean = false,

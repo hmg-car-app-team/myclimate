@@ -96,19 +96,19 @@ class OpenMeteoTest {
         val s = Src(); val f = feed(s)
         assertFalse(f.refresh()); assertEquals(0, s.calls)
         val v = f.view(null, null)
-        assertEquals(EnvSource.SAMPLE, v.source); assertEquals("기본 샘플", v.badge); assertEquals(Weather.CLEAR, v.weather); assertTrue(v.air.sample); assertNull(v.airNote)
+        assertEquals(EnvSource.SAMPLE, v.source); assertEquals("기본 샘플", v.badge); assertEquals(Weather.CLEAR, v.weather); assertTrue(v.air.sample)
     }
     @Test fun liveAfterConsent() = runBlocking {
         val s = Src(); val f = feed(s); f.setConsent(true)
         assertTrue(f.refresh()); assertEquals(2, s.calls)
         val v = f.view(null, null)
         assertEquals(EnvSource.LIVE, v.source); assertEquals(Weather.RAIN, v.weather); assertEquals(AirGrade.BAD, v.air.grade); assertFalse(v.air.sample)
-        assertTrue(v.badge.startsWith("실시간 · Open-Meteo · 선택 지역")); assertTrue(v.badge.contains("서울")); assertNotNull(v.airNote); assertTrue(v.airNote!!.contains("45km"))
+        assertTrue(v.badge.startsWith("실시간 · Open-Meteo · 선택 지역")); assertTrue(v.badge.contains("서울"))
     }
     @Test fun demoBeatsLiveBeatsLastBeatsSample() = runBlocking {
         val s = Src(); val f = feed(s); f.setConsent(true); f.refresh()
         var v = f.view(Weather.SNOW, AirGrade.GOOD)
-        assertEquals(EnvSource.DEMO, v.source); assertEquals("시연 값", v.badge); assertEquals(Weather.SNOW, v.weather); assertEquals(AirGrade.GOOD, v.air.grade); assertTrue(v.air.sample); assertNull(v.airNote)
+        assertEquals(EnvSource.DEMO, v.source); assertEquals("시연 값", v.badge); assertEquals(Weather.SNOW, v.weather); assertEquals(AirGrade.GOOD, v.air.grade); assertTrue(v.air.sample)
         v = f.view(Weather.SNOW, null) // 날씨만 시연: 대기질은 실시간 값 그대로
         assertEquals(Weather.SNOW, v.weather); assertEquals(AirGrade.BAD, v.air.grade); assertFalse(v.air.sample)
         assertEquals(EnvSource.LIVE, f.view(null, null).source)

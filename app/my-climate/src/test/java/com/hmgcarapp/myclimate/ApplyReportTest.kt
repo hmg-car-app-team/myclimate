@@ -15,9 +15,9 @@ class ApplyReportTest {
         assertNull(HvacErrors.codeOf(RuntimeException("x")))
     }
     @Test fun userMessagesPerCode() {
-        assertTrue(HvacErrors.userMessage(2).contains("공조가 꺼져"))
-        assertTrue(HvacErrors.userMessage(3).contains("다시")); assertTrue(HvacErrors.userMessage(4).contains("늦")); assertTrue(HvacErrors.userMessage(5).contains("권한"))
-        assertTrue(HvacErrors.userMessage(1).contains("올바르지")); assertEquals("알 수 없는 오류예요", HvacErrors.userMessage(0)); assertEquals("알 수 없는 오류예요", HvacErrors.userMessage(null)); assertEquals("알 수 없는 오류예요", HvacErrors.userMessage(99))
+        assertEquals("요청에 실패했어요", HvacErrors.userMessage(2))
+        assertEquals("요청에 실패했어요", HvacErrors.userMessage(3)); assertEquals("요청에 실패했어요", HvacErrors.userMessage(5))
+        assertEquals("요청에 실패했어요", HvacErrors.userMessage(1)); assertEquals("요청에 실패했어요", HvacErrors.userMessage(null)); assertEquals("요청에 실패했어요", HvacErrors.userMessage(99))
     }
     @Test fun partialSuccessSummary() {
         val r = List(6) { ItemResult("k$it", true, null) } + ItemResult("fan", false, 2)
@@ -26,7 +26,7 @@ class ApplyReportTest {
     @Test fun allSuccessAllFailAndEmpty() {
         assertEquals("2건 적용", HvacErrors.summary(listOf(ItemResult("ac", true, null), ItemResult("temp", true, null))))
         assertEquals("적용 실패 · 에어컨 실패(권한), 온도 실패(알 수 없음)", HvacErrors.summary(listOf(ItemResult("ac", false, 5), ItemResult("temp", false, null))))
-        assertEquals("적용할 설정이 없어요", HvacErrors.summary(emptyList()))
+        assertEquals("", HvacErrors.summary(emptyList()))
     }
     @Test fun failedWriteForgetsEchoExpectation() {
         val f = EchoFilter(1000); f.expect("fan", 3.0, 0); f.forget("fan")
