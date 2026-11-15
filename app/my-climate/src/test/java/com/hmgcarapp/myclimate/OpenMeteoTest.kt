@@ -163,7 +163,7 @@ class OpenMeteoTest {
         assertFalse(java.io.File(dir, "myclimate_state.json").exists()) // 상태 저장 파일과 분리
     }
 
-    // ---- 리뷰 후속 ----
+    // ---- 동의 철회 경계 ----
     @Test fun midwayRevokeSkipsSecondCall() = runBlocking {
         lateinit var f: EnvFeed
         val h = HttpGet { url -> urls += url; f.setConsent(false); """{"current":{"weather_code":0}}""" }

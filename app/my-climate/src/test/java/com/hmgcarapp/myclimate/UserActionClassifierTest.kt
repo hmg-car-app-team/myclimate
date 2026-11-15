@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
-class ReviewRound1Test {
+class UserActionClassifierTest {
     @get:Rule val tmp = TemporaryFolder()
     private val hwOn = HwState(true, ClimateCaps(recirc = true, ac = true, seatHeat = true), ClimateSettings(recirc = false))
     private fun env(now: Long = 1_000_000L, day: Long = 100, air: AirReading? = null) = Env(now, Ctx(-3f, 7, null), air, day)

@@ -5,8 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** 4차: 설정의 '학습 기록 지우기' 버튼은 확인 팝업을 거쳐 clearLearned 를 호출한다. */
-class Round4RestoreTest {
+/** 설정의 '학습 기록 지우기' 버튼은 확인 팝업을 거쳐 clearLearned 를 호출한다. */
+class ClearLearnedButtonTest {
     @Test fun clearLearnedButtonWiredWithConfirm() {
         val ui = File("src/main/java/com/hmgcarapp/myclimate/ui/Screens.kt").readText()
         assertEquals(1, Regex("""c\.clearLearned\(\)""").findAll(ui).count())

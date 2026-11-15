@@ -4,7 +4,7 @@ import com.hmgcarapp.myclimate.domain.*
 import org.junit.Assert.*
 import org.junit.Test
 
-class ReviewRound2Test {
+class FirstObservationHoldTest {
     private val T0 = 1_000_000L
     private fun env(now: Long = T0, air: AirReading? = null) = Env(now, Ctx(-3f, 7, null), air, 100)
     private val caps = ClimateCaps(recirc = true)

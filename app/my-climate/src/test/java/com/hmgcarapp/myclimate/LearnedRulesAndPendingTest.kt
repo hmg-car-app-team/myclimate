@@ -7,7 +7,7 @@ import com.hmgcarapp.myclimate.domain.*
 import org.junit.Assert.*
 import org.junit.Test
 
-class ReviewRound3Test {
+class LearnedRulesAndPendingTest {
     private val caps = ClimateCaps(ac = true, recirc = true, temp = true)
     private val prof = Persisted(listOf(Profile("p1", "나", ClimateSettings(tempC = 22f))), "p1", rules = emptyList())
     private fun env() = Env(1_000_000L, Ctx(20f, 12, null), null, 100)
@@ -59,7 +59,7 @@ class ReviewRound3Test {
     }
 }
 
-class ReviewRound4Test {
+class SmartNoteTest {
     private fun env() = Env(1_000_000L, Ctx(20f, 12, null), null, 100)
     private val prof = Persisted(listOf(Profile("p1", "나", ClimateSettings(tempC = 22f))), "p1", rules = emptyList())
 
